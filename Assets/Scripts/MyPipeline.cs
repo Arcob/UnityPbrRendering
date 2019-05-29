@@ -1,8 +1,7 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
+using Conditional = System.Diagnostics.ConditionalAttribute;
 
 public class MyPipeline : RenderPipeline{ //RenderPipeline是带有基础实现的IRenderPipeline接口
     public override void Render(
@@ -21,6 +20,14 @@ public class MyPipeline : RenderPipeline{ //RenderPipeline是带有基础实现�
         }
     }
 
+    CullResults cull;
+
+    //初始化一个命令缓冲
+    CommandBuffer cameraBuffer = new CommandBuffer
+    {
+        name = "Render Camera"
+    };
+
     void Render(ScriptableRenderContext context, Camera camera)
     {
         //获取剔除参数
@@ -30,31 +37,34 @@ public class MyPipeline : RenderPipeline{ //RenderPipeline是带有基础实现�
         {
             return;
         }
+#if UNITY_EDITOR
+        //手动将UI添加到scene界面，用于使UI在scene界面显示
+        if (camera.cameraType == CameraType.SceneView)
+        {
+            //这行会在game界面再添加一次UI，导致game界面UI被渲染两次，故外部嵌套条件
+            ScriptableRenderContext.EmitWorldGeometryForSceneView(camera);
+        }
+#endif
 
         //使用剔除参数进行剔除，获取剔除结果
-        CullResults cull = CullResults.Cull(ref cullingParameters, context);
+        CullResults.Cull(ref cullingParameters, context, ref cull); //使用存起来的cull引用减少gc开销
+        //CullResults cull = CullResults.Cull(ref cullingParameters, context); 这一行由于每帧要生成一个新的struct，生成了大量新gc
 
         //设置摄像机参数，包括vp矩阵
-        context.SetupCameraProperties(camera); 
-
-        //初始化渲染命令缓冲
-        var buffer = new CommandBuffer
-        {
-            name = camera.name // 给命令缓存命名方便debug
-        };
+        context.SetupCameraProperties(camera);
 
         //CameraClearFlags由一系列表示各种状态的二进制位组成
-        CameraClearFlags clearFlags = camera.clearFlags;
-        buffer.ClearRenderTarget(
+        /*CameraClearFlags clearFlags = camera.clearFlags;
+        cameraBuffer.ClearRenderTarget(
             (clearFlags & CameraClearFlags.Depth) != 0,//判断某一位是不是1
             (clearFlags & CameraClearFlags.Color) != 0,
             camera.backgroundColor
-        );
+        );*/
 
-        //执行命令缓冲区中的命令
-        context.ExecuteCommandBuffer(buffer);
-        //释放命令缓冲区
-        buffer.Release();
+        //设置帧调试器采样
+        cameraBuffer.BeginSample("Render Camera");
+        cameraBuffer.ClearRenderTarget(true, false, Color.clear);
+       
 
         //绘制设置
         var drawSettings = new DrawRendererSettings(
@@ -87,7 +97,46 @@ public class MyPipeline : RenderPipeline{ //RenderPipeline是带有基础实现�
             cull.visibleRenderers, ref drawSettings, filterSettings
         );
 
+        DrawDefaultPipeline(context, camera);
+
+        //帧调试器采样
+        cameraBuffer.EndSample("Render Camera");
+        //执行命令缓冲区中的命令
+        context.ExecuteCommandBuffer(cameraBuffer);
+        //释放命令缓冲区
+        cameraBuffer.Clear();
+
         //之前只是把命令缓存了，submit函数执行缓存的命令
         context.Submit();
+    }
+
+    Material errorMaterial;
+
+    [Conditional("DEVELOPMENT_BUILD"), Conditional("UNITY_EDITOR")]
+    void DrawDefaultPipeline(ScriptableRenderContext context, Camera camera) {
+        if (errorMaterial == null)
+        {
+            Shader errorShader = Shader.Find("Hidden/InternalErrorShader");
+            errorMaterial = new Material(errorShader)
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+        }
+
+        var drawSettings = new DrawRendererSettings(
+            camera, new ShaderPassName("ForwardBase")
+        );
+        drawSettings.SetShaderPassName(1, new ShaderPassName("PrepassBase"));
+        drawSettings.SetShaderPassName(2, new ShaderPassName("Always"));
+        drawSettings.SetShaderPassName(3, new ShaderPassName("Vertex"));
+        drawSettings.SetShaderPassName(4, new ShaderPassName("VertexLMRGBM"));
+        drawSettings.SetShaderPassName(5, new ShaderPassName("VertexLM"));
+        drawSettings.SetOverrideMaterial(errorMaterial, 0);
+
+        var filterSettings = new FilterRenderersSettings(true);
+
+        context.DrawRenderers(
+            cull.visibleRenderers, ref drawSettings, filterSettings
+        );
     }
 }
