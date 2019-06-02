@@ -106,7 +106,6 @@
 				float G = GLeft * GRight;
 
 				//菲涅尔
-				//float3 F0 = _Metallic;
 				float3 F0 = lerp(float3(0.04, 0.04, 0.04), Albedo, _Metallic);
 				float3 F = lerp(pow((1 - max(vh, 0)),5), 1, F0);
 				
@@ -118,40 +117,20 @@
 				float4 kd = (1 - float4(F, 1))*(1 - _Metallic);
 				
 				//直接光照部分结果
-				//float4 DirectLightResult = (kd * diffuseResult + SpecularResult) * float4(lightColor, 1) * nl;
-				
 				float4 specColor = SpecularResult * float4(lightColor, 1) * nl;
 				float4 diffColor = kd * diffuseResult * float4(lightColor, 1) * nl;
 				float4 DirectLightResult = diffColor + specColor;
-				//float4 result = (diffuseResult) * float4(lightColor, 1) * DotClamped(lightDir, i.normal);
 
-				//float surfaceReduction = 1.0 / (roughness*roughness + 1.0);
 				float surfaceReduction = 1.0 - 0.28*roughness*perceptualRoughness;
 
-				//float oneMinusReflectivity = 1 - max(max(SpecularResult.r, SpecularResult.g), SpecularResult.b);
-				float3 oneMinusReflectivity = 1 - SpecularResult;
+				float oneMinusReflectivity = 1 - max(max(SpecularResult.r, SpecularResult.g), SpecularResult.b);
+				//float3 oneMinusReflectivity = 1 - SpecularResult;
 				
 				half occlusion = 1;
 
 				UnityLight light; //光照
 				light.color = _LightColor0.rgb;
 				light.dir = lightDir;
-
-				UnityGIInput d;
-				d.light = light;
-				d.worldPos = i.worldPos;
-				d.worldViewDir = -viewDir;
-				d.atten = 1;
-				d.ambient = ambient.rgb;
-				d.lightmapUV = 0;
-				d.probeHDR[0] = unity_SpecCube0_HDR;
-				d.probeHDR[1] = unity_SpecCube1_HDR;
-				d.boxMin[0] = unity_SpecCube0_BoxMin; // .w holds lerp value for blending
-				d.boxMax[0] = unity_SpecCube0_BoxMax;
-				d.probePosition[0] = unity_SpecCube0_ProbePosition;
-				d.boxMax[1] = unity_SpecCube1_BoxMax;
-				d.boxMin[1] = unity_SpecCube1_BoxMin;
-				d.probePosition[1] = unity_SpecCube1_ProbePosition;
 
 				Unity_GlossyEnvironmentData g = UnityGlossyEnvironmentSetup(_Smoothness, viewDir, i.normal, F);
 
@@ -162,22 +141,26 @@
 
 				half3 ambient_contrib = 0.0;
 
-				// Linear (L1) + constant (L0) polynomial terms 
 				ambient_contrib.r = dot(unity_SHAr, half4(i.normal, 1.0));
 				ambient_contrib.g = dot(unity_SHAg, half4(i.normal, 1.0));
 				ambient_contrib.b = dot(unity_SHAb, half4(i.normal, 1.0));
 
 				float3 ambientIndirect = max(half3(0, 0, 0), ambient.rgb + ambient_contrib);
 				o_gi.indirect.diffuse = ambientIndirect;
-				o_gi.indirect.specular = UnityGI_IndirectSpecular(d, 1, g);
+
+				float mip_roughness = g.roughness * (1.7 - 0.7 * g.roughness);
+
+				half mip = mip_roughness * UNITY_SPECCUBE_LOD_STEPS;
+				half4 rgbm = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, g.reflUVW, mip);
+
+				o_gi.indirect.specular = DecodeHDR(rgbm, unity_SpecCube0_HDR);
 
 				float grazingTerm = saturate(_Smoothness + (1 - oneMinusReflectivity));
 				
-				float4 IndirectResult = float4(o_gi.indirect.diffuse * (1 - _Metallic) * Albedo + o_gi.indirect.specular * surfaceReduction  * FresnelLerp(F0, grazingTerm, nv), 1);
-				//float4 IndirectResult = float4(o_gi.indirect.diffuse * (1 - _Metallic) * Albedo + o_gi.indirect.specular * surfaceReduction * (1 - kd) * FresnelLerp((1 - (1 - _Metallic) * (1 - _Smoothness)) * Albedo, grazingTerm, nv), 1);
+				float4 IndirectResult = float4(o_gi.indirect.diffuse * (1 - _Metallic) * Albedo + o_gi.indirect.specular * surfaceReduction * FresnelLerp(F0, grazingTerm, nv), 1);
+
 				float4 result = DirectLightResult + IndirectResult;
-				//float4 result = DirectLightResult + float4((o_gi.indirect.specular * surfaceReduction * FresnelLerp(specColor, _Smoothness + (1 - oneMinusReflectivity), nv) + o_gi.indirect.diffuse), 1);// +IblResult * F * saturate(1 - roughness);
-				//float4 result = DirectLightResult + float4((o_gi.indirect.specular * surfaceReduction * F + (1 - F) * o_gi.indirect.diffuse), 1);// +IblResult * F * saturate(1 - roughness);
+				
 				//Gamma矫正
 				//result = result / (result + 1.0);
 				//result = pow(result, 1.0 / 2.2);
@@ -185,8 +168,6 @@
 				//return float4(o_gi.indirect.diffuse * Albedo, 1);
 				return result;
             }
-
-			
 
             ENDCG
         }
