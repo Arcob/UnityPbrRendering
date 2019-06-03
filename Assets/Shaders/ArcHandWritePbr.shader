@@ -7,6 +7,7 @@
 		_AO("AO", Range(0, 1)) = 0.1
 		[Gamma] _Metallic("Metallic", Range(0, 1)) = 0
 		_Smoothness("Smoothness", Range(0, 1)) = 0.5
+		_LUT("Texture", 2D) = "white" {}
     }
 
     SubShader
@@ -54,6 +55,7 @@
 			float _Smoothness;
             sampler2D _MainTex;
             float4 _MainTex_ST;
+			sampler2D _LUT;
 
             v2f vert (appdata v)
             {
@@ -65,6 +67,11 @@
 				o.normal = normalize(o.normal);
 				return o;
             }
+
+			float3 fresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
+			{
+				return F0 + (max(float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+			}
 
             fixed4 frag (v2f i) : SV_Target
             {
@@ -107,7 +114,7 @@
 
 				//菲涅尔
 				float3 F0 = lerp(float3(0.04, 0.04, 0.04), Albedo, _Metallic);
-				float3 F = lerp(pow((1 - max(vh, 0)),5), 1, F0);
+				float3 F = lerp(pow((1 - max(nv, 0)),5), 1, F0);//nv还是hv
 				
 				//镜面反射
 				float3 SpecularPreResult = D * G * F * 0.25/(nv * nl);
@@ -139,11 +146,11 @@
 
 				o_gi.light = light;
 
-				half3 ambient_contrib = 0.0;
-
-				ambient_contrib.r = dot(unity_SHAr, half4(i.normal, 1.0));
+				//half3 ambient_contrib = 0.0;
+				half3 ambient_contrib = ShadeSH9(float4(i.normal, 1));
+				/*ambient_contrib.r = dot(unity_SHAr, half4(i.normal, 1.0));
 				ambient_contrib.g = dot(unity_SHAg, half4(i.normal, 1.0));
-				ambient_contrib.b = dot(unity_SHAb, half4(i.normal, 1.0));
+				ambient_contrib.b = dot(unity_SHAb, half4(i.normal, 1.0));*/
 
 				float3 ambientIndirect = max(half3(0, 0, 0), ambient.rgb + ambient_contrib);
 				o_gi.indirect.diffuse = ambientIndirect;
@@ -151,22 +158,29 @@
 				float mip_roughness = g.roughness * (1.7 - 0.7 * g.roughness);
 
 				half mip = mip_roughness * UNITY_SPECCUBE_LOD_STEPS;
-				half4 rgbm = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, g.reflUVW, mip);
+				half4 rgbm = UNITY_SAMPLE_TEXCUBE_LOD(unity_SpecCube0, g.reflUVW, mip); //根据粗糙度生成lod级别对贴图进行三线性采样
 
 				o_gi.indirect.specular = DecodeHDR(rgbm, unity_SpecCube0_HDR);
 
+				float2 envBDRF = tex2D(_LUT, float2(max(nv, 0.0), roughness)).rg;
+
 				float grazingTerm = saturate(_Smoothness + (1 - oneMinusReflectivity));
 				
-				float4 IndirectResult = float4(o_gi.indirect.diffuse * (1 - _Metallic) * Albedo + o_gi.indirect.specular * surfaceReduction * FresnelLerp(F0, grazingTerm, nv), 1);
-
+				float3 Flast = fresnelSchlickRoughness(max(nv, 0.0), F0, roughness);
+				float4 IndirectResult = float4(o_gi.indirect.diffuse * kd * Albedo + o_gi.indirect.specular * surfaceReduction * FresnelLerp(F0, grazingTerm, nv), 1);
+				//float4 IndirectResult = float4(o_gi.indirect.diffuse * kd * Albedo + o_gi.indirect.specular * (Flast * envBDRF.r + envBDRF.g), 1);
+				
 				float4 result = DirectLightResult + IndirectResult;
 				
-				//Gamma矫正
+				//Gamma校正
 				//result = result / (result + 1.0);
 				//result = pow(result, 1.0 / 2.2);
 				
 				//return float4(o_gi.indirect.diffuse * Albedo, 1);
-				return result;
+				//return float4(Flast, 1);
+				float3 arc_brdf = Flast * envBDRF.r + float3(envBDRF.g, envBDRF.g, envBDRF.g);
+				return float4(saturate(arc_brdf),1);
+				//return result;
             }
 
             ENDCG
