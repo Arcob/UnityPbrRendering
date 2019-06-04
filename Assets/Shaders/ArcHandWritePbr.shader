@@ -4,8 +4,7 @@
     {
         _MainTex ("Texture", 2D) = "white" {}
 		_Tint("Tint", Color) = (1 ,1 ,1 ,1)
-		_AO("AO", Range(0, 1)) = 0.1
-		[Gamma] _Metallic("Metallic", Range(0, 1)) = 0
+		[Gamma] _Metallic("Metallic", Range(0, 1)) = 0 //金属度要经过伽马校正
 		_Smoothness("Smoothness", Range(0, 1)) = 0.5
 		_LUT("LUT", 2D) = "white" {}
     }
@@ -28,11 +27,7 @@
             #pragma vertex vert
             #pragma fragment frag
 
-            #include "UnityCG.cginc"
 			#include "UnityStandardBRDF.cginc" 
-			#include "UnityPBSLighting.cginc"
-
-#define PI 3.1415926
 
             struct appdata
             {
@@ -51,7 +46,6 @@
 
 			float4 _Tint;
 			float _Metallic;
-			float _AO;
 			float _Smoothness;
             sampler2D _MainTex;
             float4 _MainTex_ST;
@@ -81,9 +75,10 @@
 				float3 lightColor = _LightColor0.rgb;
 				float3 halfVector = normalize(lightDir + viewDir);  //半角向量
 
-				float perceptualRoughness = 1 - _Smoothness;
+				float perceptualRoughness = 1 - _Smoothness; //Unity用的是0.002
 
 				float roughness = perceptualRoughness * perceptualRoughness;
+				float squareRoughness = roughness * roughness;
 
 				float nl = max(saturate(dot(i.normal, lightDir)), 0.000001);
 				float nv = max(saturate(dot(i.normal, viewDir)), 0.000001);//防止除0
@@ -93,37 +88,41 @@
 
 				//漫反射部分
                 float3 Albedo = _Tint * tex2D(_MainTex, i.uv);
-				float4 diffuseResult = float4(Albedo.rgb, 1);
-
+				float4 diffuseResult = float4(Albedo.rgb, 1);//理论上要除pi 但是unity为了保证效果和legacy效果差不多所以主光源没有除
+				//UnitystandardBRDF.cginc 271行
 				//环境光
-				float3 ambientPre = 0.03 * Albedo * _AO;
+				float3 ambientPre = 0.03 * Albedo;
 				float4 ambient = float4(ambientPre, 1);
 
 				//镜面反射部分
 				//D是镜面分布函数，从统计学上估算微平面的取向
-				float squareSmoothness = pow(1 - _Smoothness, 2);
-				float squareRoughness = pow(1 - roughness, 2);
-				float D = roughness / (pow((pow(nh,2) * (roughness - 1)+1),2) * PI);
-
+				float lerpSquareRoughness = pow(lerp(0.002, 1, roughness), 2);//Unity把roughness lerp到了0.002
+				float D = lerpSquareRoughness / (pow((pow(nh,2) * (lerpSquareRoughness - 1) + 1),2) * UNITY_PI);
+				//float D = squareRoughness / ((nh * nh * (squareRoughness - 1) + 1) * (nh * nh * (squareRoughness - 1) + 1) * PI);
+				
 				//几何遮蔽G 说白了就是高光
-				float kInDirectLight = pow(_Smoothness + 1, 2) / 8;
-				float kInIBL = pow(_Smoothness, 2) / 8;
+				float kInDirectLight = pow(squareRoughness + 1, 2) / 8;
+				float kInIBL = pow(squareRoughness, 2) / 8;
 				float GLeft = nl / lerp(nl, 1, kInDirectLight);
 				float GRight = nv / lerp(nv, 1, kInDirectLight);
+				//float GLeft = nl / (nl * (1 - kInDirectLight) + kInDirectLight);
+				//float GRight = nv / (nv * (1 - kInDirectLight) + kInDirectLight);
 				float G = GLeft * GRight;
 
-				//菲涅尔D
-				float3 F0 = lerp(float3(0.04, 0.04, 0.04), Albedo, _Metallic);
-				float3 F = lerp(pow((1 - max(vh, 0)),5), 1, F0);//是hv不是nv
+				//菲涅尔F
 				
+				float3 F0 = lerp(unity_ColorSpaceDielectricSpec.rgb, Albedo, _Metallic);
+				//float3 F0 = lerp(float3(0.04, 0.04, 0.04), Albedo, _Metallic);
+				//float3 F = lerp(pow((1 - max(vh, 0)),5), 1, F0);//是hv不是nv
+				float3 F = F0 + (1 - F0) * exp2((-5.55473 * vh - 6.98316) * vh);
 				//镜面反射结果
-				float3 SpecularResult = D * G * F * 0.25/(nv * nl);
+				float3 SpecularResult = (D * G * F * 0.25)/(nv * nl);
 				
 				//漫反射系数
-				float4 kd = (1 - float4(F, 1))*(1 - _Metallic);
+				float3 kd = (1 - F)*(1 - _Metallic);
 				
 				//直接光照部分结果
-				float4 specColor = float4(SpecularResult * lightColor * nl, 1);
+				float4 specColor = float4(SpecularResult * lightColor * nl * FresnelTerm(1, lh) * UNITY_PI, 1);
 				float4 diffColor = float4(kd * Albedo * lightColor * nl, 1);
 				float4 DirectLightResult = diffColor + specColor;
 
@@ -161,9 +160,10 @@
 				float4 IndirectResult = float4(iblDiffuse * kdLast * Albedo + iblSpecular * surfaceReduction * FresnelLerp(F0, grazingTerm, nv), 1);		
 				*/
 
-				float4 result = DirectLightResult + IndirectResult;
+				float4 result = DirectLightResult +IndirectResult;
 				
 				return result;
+				//return float4(SpecularResult, 1);
             }
 
             ENDCG
