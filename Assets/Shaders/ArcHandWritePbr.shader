@@ -75,13 +75,13 @@
 				float3 lightColor = _LightColor0.rgb;
 				float3 halfVector = normalize(lightDir + viewDir);  //半角向量
 
-				float perceptualRoughness = 1 - _Smoothness; //Unity用的是0.002
+				float perceptualRoughness = 1 - _Smoothness;
 
 				float roughness = perceptualRoughness * perceptualRoughness;
 				float squareRoughness = roughness * roughness;
 
-				float nl = max(saturate(dot(i.normal, lightDir)), 0.000001);
-				float nv = max(saturate(dot(i.normal, viewDir)), 0.000001);//防止除0
+				float nl = max(saturate(dot(i.normal, lightDir)), 0.000001);//防止除0
+				float nv = max(saturate(dot(i.normal, viewDir)), 0.000001);
 				float vh = max(saturate(dot(viewDir, halfVector)), 0.000001);
 				float lh = max(saturate(dot(lightDir, halfVector)), 0.000001);
 				float nh = max(saturate(dot(i.normal, halfVector)), 0.000001);			
@@ -97,22 +97,19 @@
 				//镜面反射部分
 				//D是镜面分布函数，从统计学上估算微平面的取向
 				float lerpSquareRoughness = pow(lerp(0.002, 1, roughness), 2);//Unity把roughness lerp到了0.002
-				float D = lerpSquareRoughness / (pow((pow(nh,2) * (lerpSquareRoughness - 1) + 1),2) * UNITY_PI);
-				//float D = squareRoughness / ((nh * nh * (squareRoughness - 1) + 1) * (nh * nh * (squareRoughness - 1) + 1) * PI);
+				float D = lerpSquareRoughness / (pow((pow(nh, 2) * (lerpSquareRoughness - 1) + 1), 2) * UNITY_PI);
 				
 				//几何遮蔽G 说白了就是高光
 				float kInDirectLight = pow(squareRoughness + 1, 2) / 8;
 				float kInIBL = pow(squareRoughness, 2) / 8;
 				float GLeft = nl / lerp(nl, 1, kInDirectLight);
 				float GRight = nv / lerp(nv, 1, kInDirectLight);
-				//float GLeft = nl / (nl * (1 - kInDirectLight) + kInDirectLight);
-				//float GRight = nv / (nv * (1 - kInDirectLight) + kInDirectLight);
 				float G = GLeft * GRight;
 
 				//菲涅尔F
 				
+				//unity_ColorSpaceDielectricSpec.rgb这玩意大概是float3(0.04, 0.04, 0.04)，就是个经验值
 				float3 F0 = lerp(unity_ColorSpaceDielectricSpec.rgb, Albedo, _Metallic);
-				//float3 F0 = lerp(float3(0.04, 0.04, 0.04), Albedo, _Metallic);
 				//float3 F = lerp(pow((1 - max(vh, 0)),5), 1, F0);//是hv不是nv
 				float3 F = F0 + (1 - F0) * exp2((-5.55473 * vh - 6.98316) * vh);
 				//镜面反射结果
@@ -122,9 +119,9 @@
 				float3 kd = (1 - F)*(1 - _Metallic);
 				
 				//直接光照部分结果
-				float4 specColor = float4(SpecularResult * lightColor * nl * FresnelTerm(1, lh) * UNITY_PI, 1);
-				float4 diffColor = float4(kd * Albedo * lightColor * nl, 1);
-				float4 DirectLightResult = diffColor + specColor;
+				float3 specColor = SpecularResult * lightColor * nl * FresnelTerm(1, lh) * UNITY_PI;
+				float3 diffColor = kd * Albedo * lightColor * nl;
+				float3 DirectLightResult = diffColor + specColor;
 
 				
 				//ibl部分
@@ -149,7 +146,7 @@
 				float3 Flast = fresnelSchlickRoughness(max(nv, 0.0), F0, roughness);
 				float kdLast = (1 - Flast) * (1 - _Metallic);
 				
-				float4 IndirectResult = float4(iblDiffuse * kdLast * Albedo + iblSpecular * (Flast * envBDRF.r + envBDRF.g), 1);
+				float3 IndirectResult = iblDiffuse * kdLast * Albedo + iblSpecular * (Flast * envBDRF.r + envBDRF.g);
 				
 				/*
 				float surfaceReduction = 1.0 / (roughness*roughness + 1.0); //Liner空间
@@ -160,10 +157,9 @@
 				float4 IndirectResult = float4(iblDiffuse * kdLast * Albedo + iblSpecular * surfaceReduction * FresnelLerp(F0, grazingTerm, nv), 1);		
 				*/
 
-				float4 result = DirectLightResult +IndirectResult;
+				float4 result = float4(DirectLightResult +IndirectResult, 1);
 				
 				return result;
-				//return float4(SpecularResult, 1);
             }
 
             ENDCG

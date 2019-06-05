@@ -1,16 +1,10 @@
 ﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
-// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
-// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
 Shader "Arc/MyFirstPbr"
 {
     Properties
     {
 		_Tint ("Tint", Color) = (1 ,1 ,1 ,1)
         _MainTex ("Texture", 2D) = "white" {}
-		//_SpecularTint("Specular", Color) = (0.5, 0.5, 0.5)
 		[Gamma] _Metallic("Metallic", Range(0, 1)) = 0
 		_Smoothness("Smoothness", Range(0, 1)) = 0.5
     }
@@ -30,12 +24,7 @@ Shader "Arc/MyFirstPbr"
 
             #pragma vertex vert
             #pragma fragment frag
-            // make fog work
-            #pragma multi_compile_fog
 
-            //#include "UnityCG.cginc"
-			//#include "UnityStandardBRDF.cginc"  //其中已经include了"UnityCG.cginc"
-			//#include "UnityStandardUtils.cginc"
 			#include "UnityPBSLighting.cginc"
 
             struct appdata
@@ -54,7 +43,6 @@ Shader "Arc/MyFirstPbr"
             };
 
 			float4 _Tint;
-			//float4 _SpecularTint;
 			float _Metallic;
 			float _Smoothness;
             sampler2D _MainTex;
@@ -66,10 +54,6 @@ Shader "Arc/MyFirstPbr"
                 o.vertex = UnityObjectToClipPos(v.vertex);
 				o.worldPos = mul(unity_ObjectToWorld, v.vertex);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-				/*o.normal = mul(
-					transpose((float3x3)unity_WorldToObject),
-					v.normal
-				);*/
 				o.normal = UnityObjectToWorldNormal(v.normal);
 				o.normal = normalize(o.normal);
                 return o;
@@ -80,28 +64,14 @@ Shader "Arc/MyFirstPbr"
 				i.normal = normalize(i.normal);
 				float3 lightDir = _WorldSpaceLightPos0.xyz;
 				float3 viewDir = normalize(_WorldSpaceCameraPos - i.worldPos);
-
 				float3 lightColor = _LightColor0.rgb;
 
-				float3 reflectionDir = reflect(-lightDir, i.normal);
-				float3 halfVector = normalize(lightDir + viewDir);
-				//return DotClamped(viewDir, reflectionDir);
-				//return float4(diffuse, 1);
-
-				float3 albedo = tex2D(_MainTex, i.uv).rgb * _Tint.rgb;
-				//albedo *= 1 - _SpecularTint.rgb;
-				//albedo *= 1 - max(_SpecularTint.r, max(_SpecularTint.g, _SpecularTint.b));
 				float3 specularTint;
 				float oneMinusReflectivity;
-				albedo = DiffuseAndSpecularFromMetallic(
+				float3 albedo = tex2D(_MainTex, i.uv).rgb * _Tint.rgb;
+				albedo = DiffuseAndSpecularFromMetallic( // 从金属度生成漫反射颜色，镜面反射颜色等
 					albedo, _Metallic, specularTint, oneMinusReflectivity
 				);
-				/*float3 diffuse = albedo * lightColor * DotClamped(lightDir, i.normal);
-
-				float3 specular = specularTint.rgb * lightColor * pow(
-					DotClamped(halfVector, i.normal),
-					_Smoothness * 100
-				);*/
 				
 				UnityLight light;
 				light.color = lightColor;
@@ -111,14 +81,13 @@ Shader "Arc/MyFirstPbr"
 				indirectLight.diffuse = 0;
 				indirectLight.specular = 0;
 
-				return UNITY_BRDF_PBS(
+				return UNITY_BRDF_PBS( //生成直接光pbr结果
 					albedo, specularTint,
 					oneMinusReflectivity, _Smoothness,
 					i.normal, viewDir,
 					light, indirectLight
 				);
 
-				//return float4(diffuse+specular, 1);
             }
             ENDCG
         }
