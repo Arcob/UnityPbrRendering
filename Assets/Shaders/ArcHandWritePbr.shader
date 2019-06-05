@@ -88,11 +88,10 @@
 
 				//漫反射部分
                 float3 Albedo = _Tint * tex2D(_MainTex, i.uv);
-				float4 diffuseResult = float4(Albedo.rgb, 1);//理论上要除pi 但是unity为了保证效果和legacy效果差不多所以主光源没有除
+				//float4 diffuseResult = float4(Albedo.rgb, 1);//理论上要除pi 但是unity为了保证效果和legacy效果差不多所以主光源没有除
 				//UnitystandardBRDF.cginc 271行
 				//环境光
-				float3 ambientPre = 0.03 * Albedo;
-				float4 ambient = float4(ambientPre, 1);
+				float3 ambient = 0.03 * Albedo;
 
 				//镜面反射部分
 				//D是镜面分布函数，从统计学上估算微平面的取向
@@ -131,7 +130,7 @@
 				ambient_contrib.g = dot(unity_SHAg, half4(i.normal, 1.0));
 				ambient_contrib.b = dot(unity_SHAb, half4(i.normal, 1.0));
 
-				float3 iblDiffuse = max(half3(0, 0, 0), ambient.rgb + ambient_contrib);
+				float3 iblDiffuse = max(half3(0, 0, 0), ambient + ambient_contrib);
 
 				float mip_roughness = perceptualRoughness * (1.7 - 0.7 * perceptualRoughness);
 				float3 reflectVec = reflect(-viewDir, i.normal);
@@ -146,7 +145,9 @@
 				float3 Flast = fresnelSchlickRoughness(max(nv, 0.0), F0, roughness);
 				float kdLast = (1 - Flast) * (1 - _Metallic);
 				
-				float3 IndirectResult = iblDiffuse * kdLast * Albedo + iblSpecular * (Flast * envBDRF.r + envBDRF.g);
+				float3 iblDiffuseResult = iblDiffuse * kdLast * Albedo;
+				float3 iblSpecularResult = iblSpecular * (Flast * envBDRF.r + envBDRF.g);
+				float3 IndirectResult = iblDiffuseResult + iblSpecularResult;
 				
 				/*
 				float surfaceReduction = 1.0 / (roughness*roughness + 1.0); //Liner空间
