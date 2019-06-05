@@ -62,6 +62,11 @@
 				return o;
 			}
 
+			float3 fresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
+			{
+				return F0 + (max(float3(1 ,1, 1) * (1 - roughness), F0) - F0) * pow(1.0 - cosTheta, 5.0);
+			}
+
 			fixed4 frag(v2f i) : SV_Target
 			{
 				i.normal = normalize(i.normal);
@@ -105,17 +110,11 @@
 				float3 diffColor = kd * Albedo * lightColor * nl;
 				float3 DirectLightResult = diffColor + specColor;
 
-				half3 ambient_contrib = 0.0;
-				//half3 ambient_contrib = ShadeSH9(float4(i.normal, 1));
-				ambient_contrib.r = dot(unity_SHAr, half4(i.normal, 1.0));
-				ambient_contrib.g = dot(unity_SHAg, half4(i.normal, 1.0));
-				ambient_contrib.b = dot(unity_SHAb, half4(i.normal, 1.0));
+				half3 ambient_contrib = ShadeSH9(float4(i.normal, 1));
 
 				float3 ambient = 0.03 * Albedo;
 
 				float3 iblDiffuse = max(half3(0, 0, 0), ambient.rgb + ambient_contrib);
-
-				float kdLast = 1;
 
 				float mip_roughness = perceptualRoughness * (1.7 - 0.7 * perceptualRoughness);
 				float3 reflectVec = reflect(-viewDir, i.normal);
@@ -125,8 +124,13 @@
 
 				float3 iblSpecular = DecodeHDR(rgbm, unity_SpecCube0_HDR);
 
+				float2 envBDRF = tex2D(_LUT, float2(lerp(0, 0.99, nv), lerp(0, 0.99, roughness))).rg; // LUT采样
+
+				float3 Flast = fresnelSchlickRoughness(max(nv, 0.0), F0, roughness);
+				float kdLast = (1 - Flast) * (1 - _Metallic);
+
 				float3 iblDiffuseResult = iblDiffuse * kdLast * Albedo;
-				float3 iblSpecularResult = 0;
+				float3 iblSpecularResult = iblSpecular * (Flast * envBDRF.r + envBDRF.g);
 				float3 IndirectResult = iblDiffuseResult + iblSpecularResult;
 
 				float4 result = float4(DirectLightResult + IndirectResult, 1);

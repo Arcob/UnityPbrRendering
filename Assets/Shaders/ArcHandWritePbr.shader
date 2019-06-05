@@ -124,11 +124,13 @@
 
 				
 				//ibl部分
+				half3 ambient_contrib = ShadeSH9(float4(i.normal, 1));
+				/*
 				half3 ambient_contrib = 0.0;
-				//half3 ambient_contrib = ShadeSH9(float4(i.normal, 1));
 				ambient_contrib.r = dot(unity_SHAr, half4(i.normal, 1.0));
 				ambient_contrib.g = dot(unity_SHAg, half4(i.normal, 1.0));
 				ambient_contrib.b = dot(unity_SHAb, half4(i.normal, 1.0));
+				*/
 
 				float3 iblDiffuse = max(half3(0, 0, 0), ambient + ambient_contrib);
 
